@@ -52,16 +52,16 @@ def avg_bondlen(mol: Chem.Mol):
 Bond = namedtuple("Bond", ["angle", "neighbour_id", "bond_id"])
 
 
-class AnchorManager:
+class AttachmentPointManager:
     """AnchorManager is an invisible overlay for RDKit Atoms storing positions for arches and bond-attachment-points.
     """
 
-    def __init__(self, position, radius, relative_bond_radius):
+    def __init__(self, position: np.array, radius, bond_width):
         """
         """
 
         self.pos = position
-        self.bond_ratio = relative_bond_radius
+        self.bond_width = bond_width
         self.radius = radius
         self.bonds: List[Bond] = []
         self.bond_attachment_points: Optional[List[Tuple]] = None
@@ -70,22 +70,18 @@ class AnchorManager:
         self.bonds.append(Bond(angle, neighbor_id, bond_id))
 
     @property
-    def abs_bond_radius(self):
-        return self.radius * self.bond_ratio
-
-    @property
-    def padding_angle(self):
-        return np.arcsin(self.abs_bond_radius / self.radius)
+    def delta_angle(self):
+        return np.arcsin(self.bond_width / self.radius)
 
     def generate_attachment_points(self):
         sorted_bonds = sorted(self.bonds, key=lambda x: x.angle)
         self.bond_attachment_points = dict()
         for i, bond in enumerate(sorted_bonds):
-            start_angle = bond.angle - self.padding_angle
-            end_angle = bond.angle + self.padding_angle
+            alpha_left = bond.angle - self.delta_angle
+            alpha_right = bond.angle + self.delta_angle
 
-            start_r = self.radius
-            end_r = self.radius
+            d_left = self.radius
+            d_right = self.radius
 
             # Handling intersecting bonds
             # # Intersections with previous bonds
@@ -94,16 +90,17 @@ class AnchorManager:
             else:
                 prev_bond_angle = sorted_bonds[i - 1].angle
 
+
             # #  If both points intersect the mean angle is calculated.
-            if prev_bond_angle + self.padding_angle >= start_angle:
+            if prev_bond_angle + self.delta_angle >= alpha_left:
 
-                start_angle = np.mean([prev_bond_angle + self.padding_angle, start_angle])
+                alpha_left = np.mean([prev_bond_angle + self.delta_angle, alpha_left])
 
-                inter_bond_angle = bond.angle - prev_bond_angle
+                a_rhombus = bond.angle - prev_bond_angle
 
-                rhom_side_len = self.abs_bond_radius / np.sin(inter_bond_angle)
+                len_rhombus = self.bond_width / np.sin(a_rhombus)
                 # Radius is altered to match the intersecting position
-                start_r = 2 * rhom_side_len * np.cos(inter_bond_angle / 2)
+                d_left = 2 * len_rhombus * np.cos(a_rhombus / 2)
 
             # # Intersections with following bonds
             if i + 1 == len(sorted_bonds):
@@ -111,17 +108,17 @@ class AnchorManager:
             else:
                 next_bond_angle = sorted_bonds[i + 1].angle
 
-            if next_bond_angle - self.padding_angle <= end_angle:
-                end_angle = np.mean([next_bond_angle - self.padding_angle, end_angle])
+            if next_bond_angle - self.delta_angle <= alpha_right:
+                alpha_right = np.mean([next_bond_angle - self.delta_angle, alpha_right])
 
-                inter_bond_angle = next_bond_angle - bond.angle
-                rhom_side_len = self.abs_bond_radius / np.sin(inter_bond_angle)
-                end_r = 2 * rhom_side_len * np.cos(inter_bond_angle / 2)
+                a_rhombus = next_bond_angle - bond.angle
+                len_rhombus = self.bond_width / np.sin(a_rhombus)
+                d_right = 2 * len_rhombus * np.cos(a_rhombus / 2)
 
-            self.bond_attachment_points[bond.bond_id] = [(start_angle, start_r), (end_angle, end_r)]
+            self.bond_attachment_points[bond.bond_id] = [(alpha_left, d_left), (alpha_right, d_right)]
         return self
 
-    def get_arch_anchors(self) -> Iterator[Tuple[float, float]]:
+    def get_arch_attachment_points(self) -> Iterator[Tuple[float, float]]:
         """Points between bonds which are drawn as arch."""
         if self.bonds:
             sorted_bonds = sorted(self.bonds, key=lambda x: x[0])
@@ -140,7 +137,7 @@ class AnchorManager:
 ColorTuple = Union[Tuple[float, float, float, float], Tuple[float, float, float]]
 
 
-def draw_substructurematch(canvas, mol, indices, atom_radius=0.3, relative_bond_width=0.5, line_width=2, color=None
+def draw_substructurematch(canvas, mol, indices, rel_radius=0.3, rel_width=0.5, line_width=2, color=None
                            ) -> None:
     """ Draws the substructure defined by (atom-) `indices`, as lasso-highlight onto `canvas`.
 
@@ -155,10 +152,10 @@ def draw_substructurematch(canvas, mol, indices, atom_radius=0.3, relative_bond_
     indices: Union[list, str]
         Atom indices delineating highlighted substructure.
 
-    atom_radius: float
+    rel_radius: float
         Radius of the circle around atoms. Length is relative to average bond length (1 = avg. bond len).
 
-    relative_bond_width: float
+    rel_width: float
         Distance of line to "bond" (line segment between the two atoms). Size is relative to `atom_radius`.
 
     line_width: int
@@ -174,7 +171,7 @@ def draw_substructurematch(canvas, mol, indices, atom_radius=0.3, relative_bond_
 
     prior_lw = canvas.LineWidth()
     canvas.SetLineWidth(line_width)
-
+    canvas.SetFillPolys(False)
     # Setting color
     # #  Default color is gray.
     if not color:
@@ -184,7 +181,8 @@ def draw_substructurematch(canvas, mol, indices, atom_radius=0.3, relative_bond_
     # Selects first conformer and calculates the mean bond length
     conf = mol.GetConformer(0)
     avg_len = avg_bondlen(mol)
-    r_ = avg_len * atom_radius
+    r = avg_len * rel_radius
+    w = r * rel_width
 
     a_obj_dict = dict()  # Dictionary for atoms delineating highlighted substructure.
     for atom in mol.GetAtoms():
@@ -196,10 +194,10 @@ def draw_substructurematch(canvas, mol, indices, atom_radius=0.3, relative_bond_
         atom_pos = conf.GetAtomPosition(a_idx)
         atom_pos = np.array([atom_pos.x, atom_pos.y])
 
-        # Initializing an AnchorManager centered at the atom position
-        anchor_point_manager = AnchorManager(atom_pos, r_, relative_bond_width)
+        # Initializing an AttachmentPointManager centered at the atom position
+        at_manager = AttachmentPointManager(atom_pos, r, w)
 
-        # Adding Bonds to the Anchor manager
+        # Adding Bonds to the AttachmentPointManager
         for bond in atom.GetBonds():
             bond_atom1 = bond.GetBeginAtomIdx()
             bond_atom2 = bond.GetEndAtomIdx()
@@ -210,43 +208,45 @@ def draw_substructurematch(canvas, mol, indices, atom_radius=0.3, relative_bond_
             neigbor_pos = np.array([neigbor_pos.x, neigbor_pos.y])
             bond_angle = angle_between(atom_pos, neigbor_pos)
             bond_angle = bond_angle % (2*np.pi)  # Assuring 0 <= bond_angle <= 2 pi
-            anchor_point_manager.add_bond(bond_angle, neigbor_idx, bond.GetIdx())
-        anchor_point_manager.generate_attachment_points()
-        a_obj_dict[a_idx] = anchor_point_manager
+            at_manager.add_bond(bond_angle, neigbor_idx, bond.GetIdx())
+        at_manager.generate_attachment_points()
+        a_obj_dict[a_idx] = at_manager
 
     added_bonds = set()
-    for idx, anchor_point_manager in a_obj_dict.items():
+    for idx, at_manager in a_obj_dict.items():
 
         # A circle is drawn to atoms without outgoing connections
-        if not anchor_point_manager.bonds:
-            pos_list1 = arch_points(r_, 0, np.pi * 2, 60)
-            pos_list1[:, 0] += anchor_point_manager.pos[0]
-            pos_list1[:, 1] += anchor_point_manager.pos[1]
+        if not at_manager.bonds:
+            pos_list1 = arch_points(r, 0, np.pi * 2, 60)
+            pos_list1[:, 0] += at_manager.pos[0]
+            pos_list1[:, 1] += at_manager.pos[1]
             points = [Point2D(*c) for c in pos_list1]
             canvas.DrawPolygon(points)
 
-        # A arch is drawn between lines parallel to the bond
-        for points in anchor_point_manager.get_arch_anchors():
-            pos_list1 = arch_points(r_, points[0], points[1], 20)
-            pos_list1[:, 0] += anchor_point_manager.pos[0]
-            pos_list1[:, 1] += anchor_point_manager.pos[1]
+        # A arch is drawn between attachment points of neighbouring bonds
+        for points in at_manager.get_arch_attachment_points():
+            pos_list1 = arch_points(r, points[0], points[1], 20)
+            # Translating arch from origin to atom position
+            pos_list1[:, 0] += at_manager.pos[0]
+            pos_list1[:, 1] += at_manager.pos[1]
+            # Transforming points to RDKit Objects
             points = [Point2D(*c) for c in pos_list1]
             canvas.DrawPolygon(points)
 
         # Drawing lines parallel to each bond
-        for bond in anchor_point_manager.bonds:
+        for bond in at_manager.bonds:
             if bond.bond_id in added_bonds:
                 continue
             added_bonds.add(bond.bond_id)
-            bnd_points = anchor_point_manager.bond_attachment_points[bond.bond_id]
+            bnd_points = at_manager.bond_attachment_points[bond.bond_id]
 
-            atom_ap1 = angle_to_coord(anchor_point_manager.pos, *bnd_points[0])
-            atom_ap2 = angle_to_coord(anchor_point_manager.pos, *bnd_points[1])
-            neig = a_obj_dict[bond.neighbour_id]
-            neig_ap1 = angle_to_coord(neig.pos, *neig.bond_attachment_points[bond.bond_id][0])
-            neig_ap2 = angle_to_coord(neig.pos, *neig.bond_attachment_points[bond.bond_id][1])
-            canvas.DrawLine(Point2D(*atom_ap1), Point2D(*neig_ap2))
-            canvas.DrawLine(Point2D(*atom_ap2), Point2D(*neig_ap1))
+            atom_i_left_at = angle_to_coord(at_manager.pos, *bnd_points[0])
+            atom_i_right_at = angle_to_coord(at_manager.pos, *bnd_points[1])
+            atom_j = a_obj_dict[bond.neighbour_id]
+            atom_j_left_at = angle_to_coord(atom_j.pos, *atom_j.bond_attachment_points[bond.bond_id][0])
+            atom_j_right_at = angle_to_coord(atom_j.pos, *atom_j.bond_attachment_points[bond.bond_id][1])
+            canvas.DrawLine(Point2D(*atom_i_left_at), Point2D(*atom_j_right_at))
+            canvas.DrawLine(Point2D(*atom_i_right_at), Point2D(*atom_j_left_at))
     # restoring prior line width
     canvas.SetLineWidth(prior_lw)
 
@@ -316,8 +316,8 @@ def draw_multi_matches(canvas, mol, indices_set_lists, r_min=0.3, r_dist=0.13, r
         draw_substructurematch(canvas,
                                mol,
                                match_atoms,
-                               atom_radius=ar,
-                               relative_bond_width=max(relative_bond_width, ar),
+                               rel_radius=ar,
+                               rel_width=max(relative_bond_width, ar),
                                color=color,
                                line_width=line_width)
 
