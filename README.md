@@ -79,14 +79,14 @@ for smart_str in smarts_list:
 d = rdMolDraw2D.MolDraw2DCairo(500, 500)
 
 # Setting all atom colors to black. Only personal preference.
-d.drawOptions().updateAtomPalette({i: (0, 0, 0, 0) for i in range(100)}) # Setting atom color to black
+d.drawOptions().updateAtomPalette({i: (0, 0, 0, 1) for i in range(100)}) # Setting atom color to black
 
 # Setting up the coordinate system by drawing and erasing molecule
 d.DrawMolecule(mol)
 d.ClearDrawing()
 
 # adding the lasso highlighting
-draw_substructurematch(d, mol, atom_idx_list[0], atom_radius=0.4, relative_bond_width=0.5, color=color_dict["pink"])
+draw_substructurematch(d, mol, atom_idx_list[0], rel_radius=0.4, rel_width=0.5, color=color_dict["pink"])
 
 # adding the molecule
 d.DrawMolecule(mol)
@@ -99,7 +99,7 @@ Image.open(io.BytesIO(d.GetDrawingText()))
 
 
 
-![png](figures/output_11_0.png)
+![png](./figures/output_11_0.png)
 
 
 
@@ -112,17 +112,17 @@ The parameter `relative_bond_width` sets the width for the highlighting around t
 d = rdMolDraw2D.MolDraw2DCairo(500, 500)
 
 # Setting all atom colors to black. Only personal preference.
-d.drawOptions().updateAtomPalette({i: (0, 0, 0, 0) for i in range(100)}) # Setting atom color to black
+d.drawOptions().updateAtomPalette({i: (0, 0, 0, 1) for i in range(100)}) # Setting atom color to black
 
 # Setting up the coordinate system by drawing and erasing molecule
 d.DrawMolecule(mol)
 d.ClearDrawing()
 
 # adding the lasso highlighting with a relative_bond_width of 0.5
-draw_substructurematch(d, mol, atom_idx_list[0], atom_radius=0.4, relative_bond_width=0.5, color=color_dict["pink"])
+draw_substructurematch(d, mol, atom_idx_list[0], rel_radius=0.4, rel_width=0.5, color=color_dict["pink"])
 
 # adding the lasso highlighting with a relative_bond_width of 1.0
-draw_substructurematch(d, mol, atom_idx_list[1], atom_radius=0.4, relative_bond_width=1, color=color_dict["blue"])
+draw_substructurematch(d, mol, atom_idx_list[1], rel_radius=0.4, rel_width=1, color=color_dict["blue"])
 
 # adding the molecule
 d.DrawMolecule(mol)
@@ -135,7 +135,7 @@ Image.open(io.BytesIO(d.GetDrawingText()))
 
 
 
-![png](figures/output_13_0.png)
+![png](./figures/output_13_0.png)
 
 
 
@@ -146,8 +146,7 @@ It is also possible to highlight multiple substructures at once.
 ```python
 # Defining the canvas settings
 d = rdMolDraw2D.MolDraw2DCairo(500, 500)
-d.drawOptions().updateAtomPalette({i: (0, 0, 0, 0) for i in range(100)}) # Setting atom color to black
-
+d.drawOptions().updateAtomPalette({i: (0, 0, 0, 1) for i in range(100)}) # Setting atom color to black
 # Setting up the coordinate system by drawing and erasing molecule
 d.DrawMolecule(mol)
 d.ClearDrawing()
@@ -166,8 +165,6 @@ Image.open(io.BytesIO(d.GetDrawingText()))
 
 
 
-![png](figures/output_15_0.png)
+![png](./figures/output_15_0.png)
 
 
-
-## 
